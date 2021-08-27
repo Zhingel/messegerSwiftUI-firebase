@@ -8,14 +8,15 @@
 import SwiftUI
 
 struct ConversationListView: View {
-    let usernames = ["Will", "Tom", "Stas"]
+    
     @EnvironmentObject var model: AppStateModel
     @State var otherUsername: String = ""
     @State var showChat = false
+    @State var showSearch = false
     var body: some View {
         NavigationView {
             ScrollView(.vertical) {
-                ForEach(usernames, id: \.self) {
+                ForEach(model.conversations, id: \.self) {
                     name in
                     NavigationLink(
                         destination: ChatView(otherUsername: name),
@@ -48,11 +49,13 @@ struct ConversationListView: View {
                    NavigationLink(
                     destination: SearchView {
                         name in
+                        self.showSearch = false
                         DispatchQueue.main.asyncAfter(deadline: .now()+1) {
                             self.otherUsername = name
                             self.showChat = true
                         }
                     },
+                    isActive: $showSearch ,
                     label: {
                         Image(systemName: "magnifyingglass")
                     })
@@ -61,6 +64,10 @@ struct ConversationListView: View {
             .fullScreenCover(isPresented: $model.showingSignIn, content: {
                 SigninView()
             })
+            .onAppear {
+                guard model.auth.currentUser != nil else {return}
+                model.getConversation()
+            }
         }
     }
     func signOut() {

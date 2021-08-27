@@ -20,6 +20,8 @@ class AppStateModel : ObservableObject {
     let database = Firestore.firestore()
     let auth = Auth.auth()
     var otherUsername = ""
+    var conversationListener: ListenerRegistration?
+    var chatListener: ListenerRegistration?
     
     init() {
         self.showingSignIn = Auth.auth().currentUser == nil
@@ -37,7 +39,7 @@ extension AppStateModel {
             let filtered = usernames.filter({
                 $0.lowercased().hasPrefix(queryText.lowercased())
             })
-            completion(usernames)
+            completion(filtered)
         })
     }
 }
@@ -45,19 +47,83 @@ extension AppStateModel {
 //conversation
 extension AppStateModel {
     func getConversation() {
+       conversationListener = database
+            .collection("users")
+            .document(currentUsername)
+            .collection("chats").addSnapshotListener { [weak self] snapshot, error in
+                guard let usernames = snapshot?.documents.compactMap({$0.documentID}), error == nil else {return}
+                
+                DispatchQueue.main.async {
+                    self?.conversations = usernames
+                }
+            }
+        
         
     }
 }
 //get chat and set messages
 extension AppStateModel {
     func observeChat() {
-        
+        createConversation()
+        chatListener = database
+             .collection("users")
+             .document(currentUsername)
+             .collection("chats")
+            .document(otherUsername)
+            .collection("messages")
+            .addSnapshotListener { [weak self] snapshot, error in
+                 guard let objects = snapshot?.documents.compactMap({$0.data()}), error == nil else {return}
+                 
+                let messages: [Message] = objects.compactMap({
+                    guard  let date = ISO8601DateFormatter().date(from: $0["created"] as? String ?? "") else {return nil}
+                    return Message(
+                        text: $0["text"] as? String ?? "",
+                        type: $0[ "sender"] as? String == self?.currentUsername ? .sent : .received,
+                        created: date
+                    )
+                }).sorted(by: {first, second in
+                    return first.created < second.created
+                })
+                
+                 DispatchQueue.main.async {
+                     self?.messages = messages
+                 }
+             }
     }
     func sendMessege(text: String) {
+        let newMessageId = UUID().uuidString
+        let dateString = ISO8601DateFormatter().string(from: Date())
+        guard !dateString.isEmpty else {return}
+        let data = [
+            "text" : text,
+            "sender" : currentUsername,
+            "created" : dateString
+         ]
+        database.collection("users")
+            .document(currentUsername)
+            .collection("chats")
+            .document(otherUsername)
+            .collection("messages")
+            .document(newMessageId)
+            .setData(data)
         
+        database.collection("users")
+            .document(otherUsername)
+            .collection("chats")
+            .document(currentUsername)
+            .collection("messages")
+            .document(newMessageId)
+            .setData(data)
     }
-    func createConversationIfNeeded() {
-        
+    func createConversation() {
+        database.collection("users")
+            .document(currentUsername)
+            .collection("chats")
+            .document(otherUsername).setData(["created": "true"])
+        database.collection("users")
+            .document(otherUsername)
+            .collection("chats")
+            .document(currentUsername).setData(["created": "true"])
     }
 }
 
